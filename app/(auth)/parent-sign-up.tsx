@@ -12,13 +12,12 @@ const ParentSignUpScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  // Get needed functions and state from the store
-  const { parentSignup, isLoading, error, clearError } = useAuthStore((state) => ({
-    parentSignup: state.parentSignup,
-    isLoading: state.isLoading,
-    error: state.error,
-    clearError: state.clearError,
-  }));
+  // Select state slices individually
+  const parentSignup = useAuthStore((state) => state.parentSignup);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const error = useAuthStore((state) => state.error);
+  const clearError = useAuthStore((state) => state.clearError);
+  
   const colorScheme = useColorScheme(); 
   const colors = Colors[colorScheme ?? 'light'];
 

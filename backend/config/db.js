@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
-require('dotenv').config({ path: '../.env' }); // Ensure .env is loaded relative to this file's location if run directly, or from root if required by server.js
+// Environment variables should be loaded by the main server entry point (server.js)
 
+console.log('process.env.DB_PASSWORD', process.env.DB_PASSWORD);
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,

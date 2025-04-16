@@ -14,7 +14,7 @@ type ParentUser = { id: string; email: string; name?: string; /* add other field
 type ChildUser = { id: string; name: string; parentId: string; balance?: number; avatar_url?: string; /* add other fields */ };
 type CurrentUser = ParentUser | ChildUser | null;
 
-interface AuthState {
+export interface AuthState { // Export the interface
   isLoggedIn: boolean;
   userType: UserType;
   currentUser: CurrentUser; // Store the logged-in user object
@@ -277,4 +277,4 @@ export const useAuthStore = create<AuthState>()(
 // Function to get the current token for API calls outside of Zustand actions/components
 export const getAuthToken = async () => {
     return await getToken();
-}; 
+};

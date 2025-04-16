@@ -12,78 +12,73 @@ import { useAuthStore } from '@/src/contexts/authStore';
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-// This component handles navigation based on auth state
-function AuthNavigator() {
-  const { isLoggedIn, userType } = useAuthStore();
-  const segments = useSegments();
-  const router = useRouter();
-  const isLoadingAuth = useAuthStore(state => state.isLoading);
+export default function RootLayout() {
+  const colorScheme = useColorScheme();
+  const router = useRouter(); // Get router here
+  const segments = useSegments(); // Get segments here
+  const { isLoggedIn, userType, checkAuthStatus, isLoading: isLoadingAuth } = useAuthStore(); // Get auth state here
+  const [loaded, error] = useFonts({
+    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+  });
+
+  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
+  useEffect(() => {
+    if (error) throw error;
+  }, [error]);
 
   useEffect(() => {
-    const inAuthGroup = segments[0] === '(auth)';
+    // Call checkAuthStatus only once when the layout mounts (or when checkAuthStatus changes, though it shouldn't)
+    // Check auth status on initial load
+    checkAuthStatus();
+  }, [checkAuthStatus]);
 
-    console.log('Auth state changed:', { isLoggedIn, userType, segments });
-
-    // Add a check to prevent navigation loops if still loading auth status
-    if (isLoadingAuth) {
-      console.log('Auth status is loading, delaying navigation check.');
-      return; 
+  useEffect(() => {
+    if (!loaded || isLoadingAuth) {
+      // Still loading fonts or checking auth, do nothing regarding splash screen or navigation
+      return;
     }
 
-    if (isLoggedIn && !inAuthGroup) {
-      // Already logged in and outside auth group
-      console.log('User is logged in and outside auth group, no redirect needed from root.');
-    } else if (isLoggedIn && inAuthGroup) {
-      // Logged in but still in auth group, redirect
+    // Fonts loaded and auth check complete, hide splash screen
+    console.log('Fonts loaded and auth check done, hiding splash screen.');
+    SplashScreen.hideAsync();
+
+    // --- Navigation Logic ---
+    const inAuthGroup = segments[0] === '(auth)';
+    console.log('Auth state check in RootLayout:', { isLoggedIn, userType, segments });
+
+    if (isLoggedIn && inAuthGroup) {
+      // Logged in but in auth group, redirect
       console.log(`Redirecting logged-in user from auth group to /(${userType})`);
-      const targetRoute = userType === 'parent' ? '/(parent)' : userType === 'child' ? '/(child)' : '/(auth)';
+      const targetRoute = userType === 'parent' ? '/(parent)' : userType === 'child' ? '/(child)' : '/(auth)'; // Fallback just in case
       router.replace(targetRoute as any);
     } else if (!isLoggedIn && !inAuthGroup) {
       // Not logged in and outside auth group, redirect to auth
-      console.log('User not logged in and outside auth group, redirecting to /(auth)');
-      router.replace('/(auth)');
-    } else if (!isLoggedIn && inAuthGroup) {
-      // Not logged in and in auth group, stay put
-      console.log('User not logged in and in auth group, no redirect needed.');
+      // Make sure we are not already navigating to auth (e.g. initial load)
+      if (segments.length > 0) { // Only redirect if not at the root
+         console.log('User not logged in and outside auth group, redirecting to /(auth)');
+         router.replace('/(auth)');
+      }
+    } else {
+       // Covers:
+       // - Logged in and outside auth group (correct place)
+       // - Not logged in and inside auth group (correct place)
+       console.log('User is in the correct route group based on auth state.');
     }
+    // --- End Navigation Logic ---
 
-  // Depend on isLoading as well to re-run check after loading finishes
-  }, [isLoggedIn, userType, segments, router, isLoadingAuth]);
+  // Depend on all relevant states for navigation and splash screen
+  }, [loaded, isLoadingAuth, isLoggedIn, userType, segments, router]);
 
-  return null;
-}
-
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-  const checkAuthStatus = useAuthStore((state) => state.checkAuthStatus);
-  const isLoadingAuth = useAuthStore((state) => state.isLoading);
-
-  useEffect(() => {
-    // Call checkAuthStatus only once when the layout mounts
-    console.log('RootLayout mounted, checking auth status...');
-    checkAuthStatus();
-  }, [checkAuthStatus]); // Dependency array ensures it runs once
-
-  useEffect(() => {
-    // Hide splash screen only when fonts are loaded AND auth check is done
-    if (loaded && !isLoadingAuth) {
-       console.log('Fonts loaded and auth check done, hiding splash screen.');
-      SplashScreen.hideAsync();
-    }
-  }, [loaded, isLoadingAuth]);
 
   // Keep showing splash screen (or null) while fonts or auth status are loading
   if (!loaded || isLoadingAuth) {
-    return null;
+    return null; // Return null to prevent rendering anything until ready
   }
 
   // Fonts loaded and initial auth check complete, render the layout
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthNavigator />
+      {/* AuthNavigator removed, logic is now in RootLayout's useEffect */}
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(parent)" />

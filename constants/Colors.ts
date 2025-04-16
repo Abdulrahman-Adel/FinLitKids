@@ -31,6 +31,7 @@ export const Colors = {
     secondary: palette.secondary,
     accent: palette.accent,
     danger: palette.danger,
+    error: palette.danger, // Add error color using danger palette
     backgroundStrong: palette.white, // e.g., for input backgrounds
     placeholder: palette.mediumGray,
   },
@@ -47,6 +48,7 @@ export const Colors = {
     secondary: palette.secondary,
     accent: palette.accent,
     danger: palette.danger,
+    error: palette.danger, // Add error color using danger palette
     backgroundStrong: palette.darkGray, // Darker input backgrounds
     placeholder: palette.mediumGray,
   },

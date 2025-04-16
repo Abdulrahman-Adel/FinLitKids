@@ -7,19 +7,19 @@ import {
   ActivityIndicator // Import ActivityIndicator
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { useAuthStore } from '../../src/contexts/authStore';
+import { useAuthStore } from '../../src/contexts/authStore'; // Remove AuthState type import
+import { shallow } from 'zustand/shallow'; // Import shallow
 import { Colors } from '@/constants/Colors'; // Use alias for constants
 import { useColorScheme } from '@/hooks/useColorScheme'; // Import hook
 
 const ParentLoginScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { parentLogin, isLoading, error, clearError } = useAuthStore((state) => ({
-    parentLogin: state.parentLogin,
-    isLoading: state.isLoading,
-    error: state.error,
-    clearError: state.clearError,
-  }));
+  // Select state slices individually
+  const parentLogin = useAuthStore((state) => state.parentLogin);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const error = useAuthStore((state) => state.error);
+  const clearError = useAuthStore((state) => state.clearError);
   
   const router = useRouter();
   const colorScheme = useColorScheme(); // Get current color scheme
@@ -45,8 +45,12 @@ const ParentLoginScreen: React.FC = () => {
 
     if (success) {
       console.log('Parent login successful via API.');
+      // Navigate to the parent's main screen
+      router.replace('/(parent)/');
     } else {
       console.log('Parent login failed.');
+      // Optionally, display the error message if it's not already shown
+      Alert.alert('Login Failed', error || 'An unknown error occurred.');
     }
   };
 
@@ -184,4 +188,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ParentLoginScreen; 
+export default ParentLoginScreen;

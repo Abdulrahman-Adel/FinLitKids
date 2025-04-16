@@ -12,12 +12,12 @@ const ChildLoginScreen: React.FC = () => {
   const [parentId, setParentId] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { childLogin, isLoading, error, clearError } = useAuthStore((state) => ({
-    childLogin: state.childLogin,
-    isLoading: state.isLoading,
-    error: state.error,
-    clearError: state.clearError,
-  }));
+  // Select state slices individually
+  const childLogin = useAuthStore((state) => state.childLogin);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const error = useAuthStore((state) => state.error);
+  const clearError = useAuthStore((state) => state.clearError);
+  
   const colorScheme = useColorScheme(); 
   const colors = Colors[colorScheme ?? 'light'];
 
@@ -193,4 +193,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ChildLoginScreen; 
+export default ChildLoginScreen;
