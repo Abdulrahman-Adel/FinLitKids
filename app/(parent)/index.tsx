@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, // Import ScrollView
   SafeAreaView, // Import SafeAreaView
   Button, // Import Button
   Alert, // Import Alert
   Image, // Import Image
+  Animated, // Import Animated
+  ActivityIndicator // Add ActivityIndicator
 } from 'react-native';
 import { router } from 'expo-router'; // Import router
 import { useAuthStore } from '../../src/contexts/authStore'; // Import store
@@ -24,32 +26,70 @@ import { useProfileStore, ChildProfile } from '../../src/contexts/profileStore';
 //   'ParentApp'
 // >;
 
-// Child Summary Card Component
+// Child Summary Card Component - Updated with Animation & Initials Placeholder
 const ChildSummaryCard = ({ child }: { child: ChildProfile }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const formattedBalance = child.balance.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-  
+  const pressAnim = React.useRef(new Animated.Value(1)).current; // Animation value
+
+  // Helper function to get initials
+  const getInitials = (name: string): string => {
+      if (!name) return '?';
+      const names = name.trim().split(' ');
+      if (names.length === 1) return names[0][0].toUpperCase();
+      return (names[0][0] + names[names.length - 1][0]).toUpperCase();
+  }
+
   const handlePress = () => {
       // Later: Navigate to a detailed child view, e.g., router.push(`/(parent)/child/${child.id}`)
       Alert.alert('View Child', `Selected ${child.name} (detail view not implemented)`);
   }
 
+  const onPressIn = () => {
+    Animated.spring(pressAnim, {
+      toValue: 0.98, // Scale down slightly
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const onPressOut = () => {
+    Animated.spring(pressAnim, {
+      toValue: 1, // Scale back to normal
+      friction: 5, // Add some friction for bounce
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
   return (
-    <TouchableOpacity onPress={handlePress} style={styles.childCard}>
+    // Use Animated.TouchableOpacity
+    <Animated.TouchableOpacity 
+        onPress={handlePress} 
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={[
+            styles.childCard, 
+            { 
+                transform: [{ scale: pressAnim }] // Apply scale animation
+            }
+        ]}
+    >
       <View style={styles.childInfo}>
           {/* Use avatar or placeholder */}
           {child.avatarUrl ? (
               <Image source={{ uri: child.avatarUrl }} style={styles.childAvatar} />
           ) : (
+              // Use initials placeholder
               <View style={[styles.childAvatarPlaceholder, {backgroundColor: colors.secondary}]}>
-                <Ionicons name="person-outline" size={24} color={colors.backgroundStrong} />
+                {/* <Ionicons name="person-outline" size={24} color={colors.backgroundStrong} /> */}
+                <Text style={styles.initialsText}>{getInitials(child.name)}</Text>
               </View>
           )}
           <Text style={[styles.childName, { color: colors.text }]}>{child.name}</Text>
       </View>
       <Text style={[styles.childBalance, { color: colors.secondary }]}>{formattedBalance}</Text>
-    </TouchableOpacity>
+    </Animated.TouchableOpacity>
   );
 };
 
@@ -58,9 +98,21 @@ const ParentAppScreen: React.FC = () => {
   // const navigation = useNavigation<ParentAppScreenNavigationProp>();
 
   const logout = useAuthStore((state) => state.logout); // Get logout action
-  const { children } = useProfileStore(); // Get children from profile store
+  // Get children, fetch action, loading state, and error from profile store
+  const { children, fetchChildren, isLoading, error } = useProfileStore((state) => ({
+      children: state.children,
+      fetchChildren: state.fetchChildren,
+      isLoading: state.isLoading,
+      error: state.error,
+  }));
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+
+  // Fetch children when the component mounts
+  useEffect(() => {
+      console.log('Parent dashboard mounted, fetching children...');
+      fetchChildren();
+  }, [fetchChildren]); // Dependency array ensures it runs once on mount
 
   const handleLogout = () => {
     console.log("Logging out parent...");
@@ -77,6 +129,20 @@ const ParentAppScreen: React.FC = () => {
       console.log(`Navigate to: ${path}`);
       // Remove the alert now that we have placeholder screens
       // alert('Feature not implemented yet.'); 
+  };
+
+  // Helper to render children list or loading/error state
+  const renderChildrenList = () => {
+      if (isLoading) {
+          return <ActivityIndicator size="large" color={colors.primary} style={styles.loadingIndicator} />;
+      }
+      if (error) {
+          return <Text style={[styles.errorText, { color: colors.error }]}>Error loading children: {error}</Text>;
+      }
+      if (children.length === 0) {
+          return <Text style={{ color: colors.placeholder, marginTop: 10 }}>No children added yet. Go to "Manage Profiles" to add one.</Text>;
+      }
+      return children.map(child => <ChildSummaryCard key={child.id} child={child} />);
   };
 
   return (
@@ -96,11 +162,8 @@ const ParentAppScreen: React.FC = () => {
                 <Text style={styles.buttonSmallText}>Manage Profiles</Text>
             </TouchableOpacity>
           </View>
-          {children.length === 0 ? (
-            <Text style={{ color: colors.placeholder, marginTop: 10 }}>No children added yet. Go to "Manage Profiles" to add one.</Text>
-          ) : (
-            children.map(child => <ChildSummaryCard key={child.id} child={child} />)
-          )}
+          {/* Render children list using helper */}
+          {renderChildrenList()}
         </View>
 
         {/* Quick Actions Grid - Updated onPress handlers */}
@@ -266,6 +329,11 @@ const styles = StyleSheet.create({
       fontSize: 18,
       fontWeight: '500',
   },
+  initialsText: { // Style for the initials
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: Colors.light.backgroundStrong, // White text on colored background
+  },
   childBalance: {
       fontSize: 18,
       fontWeight: 'bold',
@@ -276,6 +344,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  loadingIndicator: {
+      marginTop: 20,
+      marginBottom: 10,
+  },
+  errorText: {
+      marginTop: 15,
+      marginBottom: 10,
+      fontSize: 15,
+      textAlign: 'center',
+      fontWeight: '500',
   },
 });
 

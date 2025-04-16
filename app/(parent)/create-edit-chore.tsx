@@ -41,7 +41,7 @@ const CreateEditChoreScreen: React.FC = () => {
         setAssignedChildId(existingChore.assignedChildId);
       }
     }
-  }, [isEditing, params.choreId, getChoreById]);
+  }, [isEditing, params.choreId]);
 
   const handleSaveChore = () => {
     // Validation

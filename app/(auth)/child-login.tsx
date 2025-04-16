@@ -1,23 +1,39 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TextInput, TouchableOpacity, Alert,
-  SafeAreaView, KeyboardAvoidingView, Platform
+  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuthStore } from '../../src/contexts/authStore';
-import { useProfileStore } from '../../src/contexts/profileStore';
 import { Colors } from '@/constants/Colors'; 
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 const ChildLoginScreen: React.FC = () => {
+  const [parentId, setParentId] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const login = useAuthStore((state) => state.login);
-  const children = useProfileStore((state) => state.children);
+  const { childLogin, isLoading, error, clearError } = useAuthStore((state) => ({
+    childLogin: state.childLogin,
+    isLoading: state.isLoading,
+    error: state.error,
+    clearError: state.clearError,
+  }));
   const colorScheme = useColorScheme(); 
   const colors = Colors[colorScheme ?? 'light'];
 
-  const handleLogin = () => {
+  useEffect(() => {
+    clearError();
+    return () => {
+      clearError();
+    };
+  }, [clearError]);
+
+  const handleLogin = async () => {
+    clearError();
+    if (!parentId.trim()) {
+      Alert.alert('Error', 'Please ask your parent for their Parent ID.');
+      return;
+    }
     if (!username.trim()) {
       Alert.alert('Error', 'Please enter your username.');
       return;
@@ -27,18 +43,14 @@ const ChildLoginScreen: React.FC = () => {
       return;
     }
 
-    console.log(`Attempting Child Login with Username: ${username}`);
+    console.log(`Attempting Child Login with ParentID: ${parentId}, Username: ${username}`);
     
-    const foundChild = children.find(
-        (child) => child.name.toLowerCase() === username.trim().toLowerCase()
-    );
+    const success = await childLogin({ parentId, username, password });
 
-    if (foundChild && foundChild.password_mock === password) {
-        console.log(`Child ${username} authenticated (mock).`);
-        login('child', foundChild.id);
+    if (success) {
+      console.log('Child login successful via API.');
     } else {
-        console.log(`Child ${username} authentication failed (mock).`);
-        Alert.alert('Login Failed', 'Incorrect username or password/PIN.');
+      console.log('Child login failed.');
     }
   };
 
@@ -51,17 +63,36 @@ const ChildLoginScreen: React.FC = () => {
         <View style={styles.innerContainer}>
           <Text style={[styles.title, { color: colors.text }]}>Hi Kiddo!</Text>
 
+          {error && (
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+          )}
+
           <TextInput
             style={[styles.input, { 
               backgroundColor: colors.backgroundStrong, 
               color: colors.text, 
               borderColor: colors.placeholder 
             }]}
-            placeholder="Username"
+            placeholder="Parent ID (ask your parent)"
+            value={parentId}
+            onChangeText={setParentId}
+            autoCapitalize="none"
+            placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
+          />
+
+          <TextInput
+            style={[styles.input, { 
+              backgroundColor: colors.backgroundStrong, 
+              color: colors.text, 
+              borderColor: colors.placeholder 
+            }]}
+            placeholder="Your Username"
             value={username}
             onChangeText={setUsername}
             autoCapitalize="none"
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
           <TextInput
             style={[styles.input, { 
@@ -74,18 +105,24 @@ const ChildLoginScreen: React.FC = () => {
             onChangeText={setPassword}
             secureTextEntry
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
           
           <TouchableOpacity 
-            style={[styles.button, { backgroundColor: colors.secondary }]} 
+            style={[styles.button, { backgroundColor: isLoading ? colors.placeholder : colors.secondary }]} 
             onPress={handleLogin}
+            disabled={isLoading}
           >
-            <Text style={styles.buttonText}>Log In</Text>
+            {isLoading ? (
+               <ActivityIndicator size="small" color={colors.backgroundStrong} />
+             ) : (
+              <Text style={styles.buttonText}>Log In</Text>
+            )}
           </TouchableOpacity>
           
-          <Link href="/(auth)/parent-auth" asChild> 
-            <TouchableOpacity style={styles.linkButton}>
-              <Text style={[styles.linkText, { color: colors.primary }]}>Not a Child? Go Back</Text>
+          <Link href="/(auth)/parent-login" asChild>
+            <TouchableOpacity style={styles.linkButton} disabled={isLoading}>
+              <Text style={[styles.linkText, { color: isLoading ? colors.placeholder : colors.primary }]}>Are you a Parent?</Text>
             </TouchableOpacity>
           </Link>
         </View>
@@ -109,8 +146,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 50,
+    marginBottom: 30,
     textAlign: 'center',
+  },
+  errorText: {
+    marginBottom: 15,
+    fontSize: 15,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   input: {
     width: '100%',

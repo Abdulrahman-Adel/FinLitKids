@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, 
   SafeAreaView, // Import SafeAreaView
   KeyboardAvoidingView, // Import KeyboardAvoidingView
-  Platform // Import Platform
+  Platform, // Import Platform
+  ActivityIndicator // Import ActivityIndicator
 } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/contexts/authStore';
 import { Colors } from '@/constants/Colors'; // Use alias for constants
 import { useColorScheme } from '@/hooks/useColorScheme'; // Import hook
@@ -13,36 +14,40 @@ import { useColorScheme } from '@/hooks/useColorScheme'; // Import hook
 const ParentLoginScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const login = useAuthStore((state) => state.login);
+  const { parentLogin, isLoading, error, clearError } = useAuthStore((state) => ({
+    parentLogin: state.parentLogin,
+    isLoading: state.isLoading,
+    error: state.error,
+    clearError: state.clearError,
+  }));
+  
+  const router = useRouter();
   const colorScheme = useColorScheme(); // Get current color scheme
   const colors = Colors[colorScheme ?? 'light']; // Get colors for the scheme
 
-  const handleLogin = () => {
-    // Basic Validation
-    if (!email.trim()) {
-      Alert.alert('Error', 'Please enter your email or username.');
-      return;
-    }
-    if (!password) {
-      Alert.alert('Error', 'Please enter your password.');
-      return;
+  useEffect(() => {
+    clearError();
+    return () => {
+      clearError();
+    };
+  }, [clearError]);
+
+  const handleLogin = async () => {
+    clearError();
+
+    if (!email.trim() || !password) {
+        return;
     }
 
     console.log(`Attempting Parent Login with Email: ${email}`);
-    // --- MOCK Authentication --- 
-    // In a real app, you'd get the parent's ID from the backend upon successful login.
-    // For now, we'll use a mock ID.
-    const MOCK_PARENT_ID = 'parent-001'; 
+    
+    const success = await parentLogin({ email, password });
 
-    // Simulate successful login for any input for now
-    // TODO: Replace with actual API call and response check
-    if (email && password) { // Simple check that fields are not empty
-        console.log(`Parent ${email} authenticated (mock).`);
-        login('parent', MOCK_PARENT_ID); // Pass type and mock ID
+    if (success) {
+      console.log('Parent login successful via API.');
     } else {
-         Alert.alert('Login Failed', 'Mock login requires non-empty fields.');
+      console.log('Parent login failed.');
     }
-    // ---------------------------
   };
 
   return (
@@ -53,6 +58,10 @@ const ParentLoginScreen: React.FC = () => {
       >
         <View style={styles.innerContainer}> 
           <Text style={[styles.title, { color: colors.text }]}>Parent Portal</Text>
+
+          {error && (
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+          )}
 
           <TextInput
             style={[styles.input, { 
@@ -66,6 +75,7 @@ const ParentLoginScreen: React.FC = () => {
             keyboardType="email-address"
             autoCapitalize="none"
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
           <TextInput
             style={[styles.input, { 
@@ -76,17 +86,26 @@ const ParentLoginScreen: React.FC = () => {
             placeholder="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry // Hides password
+            secureTextEntry
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
 
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.primary }]} onPress={handleLogin}>
-            <Text style={styles.buttonText}>Log In</Text>
+          <TouchableOpacity 
+            style={[styles.button, { backgroundColor: isLoading ? colors.placeholder : colors.primary }]} 
+            onPress={handleLogin} 
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color={colors.backgroundStrong} />
+            ) : (
+              <Text style={styles.buttonText}>Log In</Text>
+            )}
           </TouchableOpacity>
 
           <Link href="/(auth)/parent-sign-up" asChild>
-            <TouchableOpacity style={styles.linkButton}>
-              <Text style={[styles.linkText, { color: colors.primary }]}>Don't have an account? Sign Up</Text>
+            <TouchableOpacity style={styles.linkButton} disabled={isLoading}>
+              <Text style={[styles.linkText, { color: isLoading ? colors.placeholder : colors.primary }]}>Don't have an account? Sign Up</Text>
             </TouchableOpacity>
           </Link>
            {/* Optional: Add Forgot Password Link */}
@@ -116,27 +135,33 @@ const styles = StyleSheet.create({
     alignItems: 'center', // Center items horizontally
   },
   title: {
-    fontSize: 32, // Slightly larger title
+    fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 50, // Increased space
+    marginBottom: 30,
     textAlign: 'center',
+  },
+  errorText: {
+      marginBottom: 15,
+      fontSize: 15,
+      textAlign: 'center',
+      fontWeight: '500',
   },
   input: {
     width: '100%',
-    height: 55, // Slightly taller input
+    height: 55,
     borderWidth: 1,
-    borderRadius: 10, // More rounded corners
+    borderRadius: 10,
     marginBottom: 20,
     paddingHorizontal: 20,
     fontSize: 17,
   },
   button: {
     width: '100%',
-    paddingVertical: 18, // Increased padding
-    borderRadius: 10, // Match input radius
+    paddingVertical: 18,
+    borderRadius: 10,
     alignItems: 'center',
-    marginTop: 15, // Increased space
-    shadowColor: "#000", // Adding subtle shadow
+    marginTop: 15,
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -146,16 +171,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   buttonText: {
-    color: Colors.light.backgroundStrong, // Use white from palette
+    color: Colors.light.backgroundStrong,
     fontSize: 18,
     fontWeight: '600',
   },
   linkButton: {
-    marginTop: 30, // Increased space
+    marginTop: 30,
   },
-  // linkButton_forgot: {
-  //   marginTop: 15,
-  // },
   linkText: {
     fontSize: 16,
     fontWeight: '500',

@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, 
-  SafeAreaView, Alert
+  SafeAreaView, Alert,
+  ActivityIndicator
 } from 'react-native';
 import { router } from 'expo-router';
-import { useAuthStore } from '../../src/contexts/authStore';
+import { useAuthStore, ChildUser } from '../../src/contexts/authStore';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useProfileStore } from '../../src/contexts/profileStore';
+import { useDashboardStore } from '../../src/contexts/dashboardStore';
 import { Ionicons } from '@expo/vector-icons';
 
 // Placeholder for an icon component (replace with actual icon library later)
@@ -17,44 +18,56 @@ import { Ionicons } from '@expo/vector-icons';
 
 const ChildAppScreen: React.FC = () => {
   const logout = useAuthStore((state) => state.logout);
+  const currentUser = useAuthStore((state) => state.currentUser) as ChildUser | null;
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const loggedInUserId = useAuthStore((state) => state.loggedInUserId);
-  const getChildById = useProfileStore((state) => state.getChildById);
 
-  // Get logged-in child data
-  const loggedInChild = loggedInUserId ? getChildById(loggedInUserId) : null;
+  // Use the dashboard store
+  const { data: dashboardData, isLoading, error, fetchDashboardData } = useDashboardStore();
+
+  // Fetch dashboard data on mount
+  useEffect(() => {
+    console.log('Child dashboard mounted, fetching data...');
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const handleLogout = () => {
     console.log("Logging out child...");
     logout();
   };
 
-  // Navigation handlers - Updated
   const navigateTo = (path: string) => {
       router.push(path as any); 
       console.log(`Navigate to: ${path}`);
   };
 
-  // Mock data for dashboard
-  const balance = 25.50;
-  const nextChore = "Feed the fish";
-  const nextGoal = "Save for Toy Robot";
-
-  // Handle loading or error state if child data isn't available yet
-  if (!loggedInChild) {
-    // Optional: Show a loading indicator or error message
+  // Handle loading state from dashboard store
+  if (isLoading) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
-          <Text style={{ color: colors.text }}>Loading...</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </SafeAreaView>
     );
   }
+  
+  // Handle error state
+   if (error || !dashboardData) {
+     return (
+       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+         <View style={styles.loadingContainer}> 
+           <Text style={[styles.errorText, { color: colors.error }]}>
+              {error || 'Could not load dashboard data.'}
+           </Text>
+           {/* Maybe add a retry button? */}
+         </View>
+       </SafeAreaView>
+     );
+   }
 
-  // Format balance
-  const formattedBalance = loggedInChild.balance.toLocaleString('en-US', {
+  // Data is loaded, format balance
+  const formattedBalance = Number(dashboardData.balance).toLocaleString('en-US', {
     style: 'currency',
     currency: 'USD' // Adjust currency code as needed
   });
@@ -62,34 +75,37 @@ const ChildAppScreen: React.FC = () => {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <Text style={[styles.title, { color: colors.text }]}>My Dashboard</Text>
-        {/* Balance Overview */}
+        {/* Use name from currentUser */}
+        <Text style={[styles.title, { color: colors.text }]}>Hi, {currentUser?.name || 'Kiddo'}!</Text>
+        
+        {/* Use data from dashboardStore */}
         <View style={[styles.balanceCard, { backgroundColor: colors.secondary }]}>
              <Text style={styles.balanceLabel}>My Balance</Text>
              <Text style={styles.balanceAmount}>{formattedBalance}</Text>
         </View>
 
-        {/* Quick Actions Grid - Updated onPress */}
+        {/* Quick Actions Grid - Use data from dashboardStore */}
         <View style={styles.gridContainer}>
           {/* Chores */}
           <TouchableOpacity style={[styles.gridItem, { backgroundColor: colors.backgroundStrong }]} onPress={() => navigateTo('/(child)/chores')}>
-            {/* <IconPlaceholder name="Chores" style={{backgroundColor: colors.secondary}} /> */}
             <Ionicons name="list-circle-outline" size={50} color={colors.secondary} />
             <Text style={[styles.gridText, { color: colors.text }]}>My Chores</Text>
-             <Text style={[styles.gridSubtitle, { color: colors.placeholder }]}>Next: {nextChore}</Text>
+             <Text style={[styles.gridSubtitle, { color: colors.placeholder }]}>
+                {dashboardData.pendingChoresCount > 0 ? `${dashboardData.pendingChoresCount} pending` : 'All done! 🎉'}
+             </Text>
           </TouchableOpacity>
 
            {/* Savings Goals */}
           <TouchableOpacity style={[styles.gridItem, { backgroundColor: colors.backgroundStrong }]} onPress={() => navigateTo('/(child)/savings')}>
-            {/* <IconPlaceholder name="Savings" style={{backgroundColor: colors.primary}}/> */}
             <Ionicons name="rocket-outline" size={50} color={colors.primary} />
             <Text style={[styles.gridText, { color: colors.text }]}>My Goals</Text>
-            <Text style={[styles.gridSubtitle, { color: colors.placeholder }]}>Next: {nextGoal}</Text>
+            <Text style={[styles.gridSubtitle, { color: colors.placeholder }]}>
+                {dashboardData.activeGoalsCount > 0 ? `${dashboardData.activeGoalsCount} active` : 'No goals set'}
+            </Text>
           </TouchableOpacity>
 
            {/* Spending History */}
           <TouchableOpacity style={[styles.gridItem, { backgroundColor: colors.backgroundStrong }]} onPress={() => navigateTo('/(child)/spending')}>
-            {/* <IconPlaceholder name="Spending" style={{backgroundColor: colors.danger}}/> */}
             <Ionicons name="wallet-outline" size={50} color={colors.danger} />
             <Text style={[styles.gridText, { color: colors.text }]}>My Spending</Text>
             <Text style={[styles.gridSubtitle, { color: colors.placeholder }]}>View History</Text>
@@ -97,23 +113,13 @@ const ChildAppScreen: React.FC = () => {
 
            {/* Learning */}
           <TouchableOpacity style={[styles.gridItem, { backgroundColor: colors.backgroundStrong }]} onPress={() => navigateTo('/(child)/learning')}>
-            {/* <IconPlaceholder name="Learning" style={{backgroundColor: '#9b59b6'}}/> */}
             <Ionicons name="school-outline" size={50} color={'#9b59b6'} />
             <Text style={[styles.gridText, { color: colors.text }]}>Learn</Text>
              <Text style={[styles.gridSubtitle, { color: colors.placeholder }]}>New Module!</Text>
           </TouchableOpacity>
           
-          {/* Optional: Giving */}
-          {/* <TouchableOpacity style={[styles.gridItem, { backgroundColor: colors.backgroundStrong }]} onPress={() => navigateTo('/(child)/giving')}>
-            <IconPlaceholder name="Giving" style={{backgroundColor: colors.accent}}/>
-            <Text style={[styles.gridText, { color: colors.text }]}>Give</Text>
-          </TouchableOpacity> */}
-          
-          {/* Optional: Communication */}
-           {/* <TouchableOpacity style={[styles.gridItem, { backgroundColor: colors.backgroundStrong }]} onPress={() => navigateTo('/(child)/messages')}>
-            <IconPlaceholder name="Messages" style={{backgroundColor: '#e67e22'}}/>
-            <Text style={[styles.gridText, { color: colors.text }]}>Messages</Text>
-          </TouchableOpacity> */} 
+          {/* Optional sections removed for brevity */}
+           
         </View>
 
         {/* Logout Button */}
@@ -224,6 +230,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  errorText: { // Add if missing
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 10,
   },
 });
 

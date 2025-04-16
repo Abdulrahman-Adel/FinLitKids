@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, TextInput, TouchableOpacity, Alert,
-  SafeAreaView, KeyboardAvoidingView, Platform
+  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator
 } from 'react-native';
 import { Link, router } from 'expo-router';
-import { useAuthStore } from '../../src/contexts/authStore'; // Re-add if needed for auto-login later
+import { useAuthStore } from '../../src/contexts/authStore';
 import { Colors } from '@/constants/Colors'; 
 import { useColorScheme } from '@/hooks/useColorScheme'; 
 
@@ -12,16 +12,32 @@ const ParentSignUpScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Get needed functions and state from the store
+  const { parentSignup, isLoading, error, clearError } = useAuthStore((state) => ({
+    parentSignup: state.parentSignup,
+    isLoading: state.isLoading,
+    error: state.error,
+    clearError: state.clearError,
+  }));
   const colorScheme = useColorScheme(); 
   const colors = Colors[colorScheme ?? 'light'];
 
-  const handleSignUp = () => {
+  useEffect(() => {
+    // Clear error when the component mounts or unmounts
+    clearError();
+    return () => {
+      clearError();
+    };
+  }, [clearError]);
+
+  const handleSignUp = async () => {
+    clearError();
     // Basic Email Validation Regex
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    // Validation Checks
+    // Validation Checks (Keep)
     if (!email.trim() || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields.');
+      Alert.alert('Error', 'Please fill in all fields.'); // Keep immediate validation alerts
       return;
     }
     if (!emailRegex.test(email)) {
@@ -37,15 +53,18 @@ const ParentSignUpScreen: React.FC = () => {
       return;
     }
 
-    // If validation passes:
-    // In a real app, perform sign up request to backend
+    // Call the actual parentSignup function
     console.log(`Attempting Parent Sign Up with Email: ${email}`);
-    // TODO: Implement actual sign-up logic (e.g., API call)
+    const success = await parentSignup({ email, password }); // Add name later if needed
 
-    // --- Mock Success ---
-    Alert.alert('Success', 'Account created! Please log in.');
-    router.replace('/(auth)/parent-login' as any);
-    // --------------------
+    if (success) {
+      Alert.alert('Success', 'Account created! Please log in.');
+      router.replace('/(auth)/parent-login' as any); // Navigate to login screen
+    } else {
+      // Error state is set by the store, no need for Alert here unless desired
+      console.log('Parent signup failed.');
+      // Error message will be displayed via the error state variable
+    }
   };
 
   return (
@@ -56,6 +75,12 @@ const ParentSignUpScreen: React.FC = () => {
       >
         <View style={styles.innerContainer}>
           <Text style={[styles.title, { color: colors.text }]}>Create Parent Account</Text>
+          
+          {/* Display Error Message */}
+          {error && (
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+          )}
+          
           <TextInput
             style={[styles.input, { 
               backgroundColor: colors.backgroundStrong, 
@@ -68,6 +93,7 @@ const ParentSignUpScreen: React.FC = () => {
             keyboardType="email-address"
             autoCapitalize="none"
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
           <TextInput
             style={[styles.input, { 
@@ -80,6 +106,7 @@ const ParentSignUpScreen: React.FC = () => {
             onChangeText={setPassword}
             secureTextEntry
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
           <TextInput
             style={[styles.input, { 
@@ -92,15 +119,24 @@ const ParentSignUpScreen: React.FC = () => {
             onChangeText={setConfirmPassword}
             secureTextEntry
             placeholderTextColor={colors.placeholder}
+            editable={!isLoading}
           />
           
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.primary }]} onPress={handleSignUp}>
-            <Text style={styles.buttonText}>Sign Up</Text>
+          <TouchableOpacity 
+             style={[styles.button, { backgroundColor: isLoading ? colors.placeholder : colors.primary }]} 
+             onPress={handleSignUp}
+             disabled={isLoading}
+           >
+             {isLoading ? (
+               <ActivityIndicator size="small" color={colors.backgroundStrong} />
+             ) : (
+               <Text style={styles.buttonText}>Sign Up</Text>
+             )}
           </TouchableOpacity>
           
           <Link href="/(auth)/parent-login" asChild>
-            <TouchableOpacity style={styles.linkButton}>
-              <Text style={[styles.linkText, { color: colors.primary }]}>Already have an account? Log In</Text>
+            <TouchableOpacity style={styles.linkButton} disabled={isLoading}>
+              <Text style={[styles.linkText, { color: isLoading ? colors.placeholder : colors.primary }]}>Already have an account? Log In</Text>
             </TouchableOpacity>
           </Link>
         </View>
@@ -124,8 +160,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 50,
+    marginBottom: 30, // Adjusted spacing
     textAlign: 'center',
+  },
+  errorText: {
+    marginBottom: 15,
+    fontSize: 15,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   input: {
     width: '100%',

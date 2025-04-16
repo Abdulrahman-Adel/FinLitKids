@@ -1,39 +1,49 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, SafeAreaView,
-    ScrollView, TouchableOpacity, Alert
+    ScrollView, TouchableOpacity, Alert, TextInput,
+    ActivityIndicator // Added
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-// Import stores
-import { useSavingsStore, SavingsGoal } from '../../src/contexts/savingsStore';
+// Import correct stores
+import { useGoalStore, SavingsGoal } from '../../src/contexts/goalStore';
 import { useProfileStore, ChildProfile } from '../../src/contexts/profileStore';
-import { TextInput } from 'react-native-gesture-handler'; // Import TextInput
+// Remove gesture handler import if not used directly
+// import { TextInput } from 'react-native-gesture-handler'; 
 
-// Parent Goal Card Component 
-const ParentGoalCard = ({ goal, onContribute }: { goal: SavingsGoal, onContribute: (goalId: string, amount: number) => void }) => {
+// Parent Goal Card Component - Updated for async contribute
+const ParentGoalCard = ({ goal, onContribute }: { 
+    goal: SavingsGoal, 
+    onContribute: (goalId: string, amount: number) => Promise<boolean> // Make async
+}) => {
+    const [isContributing, setIsContributing] = useState(false);
     const colorScheme = useColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
-    const progress = goal.targetAmount > 0 ? (goal.currentAmount / goal.targetAmount) * 100 : 0;
-    const isComplete = goal.currentAmount >= goal.targetAmount;
+    const progress = goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0;
+    const isComplete = goal.current_amount >= goal.target_amount;
     const [contributionAmount, setContributionAmount] = useState('');
 
-    const handlePressContribute = () => {
+    const handlePressContribute = async () => {
         const amountNum = parseFloat(contributionAmount);
         if (isNaN(amountNum) || amountNum <= 0) {
             Alert.alert('Invalid Amount', 'Please enter a positive amount to contribute.');
             return;
         }
-        // Prevent contributing more than needed
-        const amountToAddCapped = Math.min(amountNum, goal.targetAmount - goal.currentAmount);
+        // Prevent contributing more than needed (backend also handles this, but good UX check)
+        const amountToAddCapped = Math.min(amountNum, goal.target_amount - goal.current_amount);
          if (amountToAddCapped <= 0 && !isComplete) {
              Alert.alert("Goal Reached", "This goal is already fully funded!");
              return;
          }
          if (amountToAddCapped > 0) {
-            onContribute(goal.id, amountToAddCapped);
-            setContributionAmount(''); // Clear input
+             setIsContributing(true);
+            const success = await onContribute(goal.id, amountToAddCapped);
+             setIsContributing(false);
+            if (success) {
+                setContributionAmount(''); // Clear input on success
+            } // Error handled by parent
          }
     };
 
@@ -41,30 +51,36 @@ const ParentGoalCard = ({ goal, onContribute }: { goal: SavingsGoal, onContribut
         <View style={styles.goalItemContainer}>
             <Text style={[styles.goalName, { color: colors.text }]}>{goal.name}</Text>
             <Text style={[styles.goalAmount, { color: colors.placeholder }]}>
-                {goal.currentAmount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} /
-                {goal.targetAmount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                {goal.current_amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} /
+                {goal.target_amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
             </Text>
             {/* Progress Bar */}
             <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: isComplete ? colors.secondary : colors.primary }]} />
+                 <View style={[styles.progressBarFill, { width: `${Math.min(100, progress)}%`, backgroundColor: isComplete ? colors.secondary : colors.primary }]} />
             </View>
              {isComplete ? (
                  <Text style={[styles.completeText, { color: colors.secondary }]}>Reached! 🎉</Text>
              ) : (
                  <View style={styles.contributeContainer}> 
                      <TextInput
-                        style={[styles.inputSmall, { backgroundColor: colors.background, color: colors.text }]}
-                        placeholder="Add Amount"
+                        style={[styles.inputSmall, { backgroundColor: colors.background, color: colors.text, borderColor: colors.placeholder }]}
+                        placeholder="Contribute Amt"
                         keyboardType="numeric"
                         value={contributionAmount}
                         onChangeText={setContributionAmount}
                         placeholderTextColor={colors.placeholder}
+                        editable={!isContributing}
                      />
                       <TouchableOpacity 
-                        style={[styles.buttonSmall, { backgroundColor: colors.primary }]} 
+                        style={[styles.buttonSmall, { backgroundColor: isContributing ? colors.placeholder : colors.primary }]} 
                         onPress={handlePressContribute}
+                        disabled={isContributing}
                        >
-                         <Text style={styles.buttonSmallText}>Contribute</Text>
+                         {isContributing ? (
+                             <ActivityIndicator size="small" color={colors.backgroundStrong} />
+                         ) : (
+                            <Text style={styles.buttonSmallText}>Add</Text>
+                         )} 
                      </TouchableOpacity>
                  </View>
              )}
@@ -77,40 +93,61 @@ const ParentSavingsScreen: React.FC = () => {
     const colors = Colors[colorScheme ?? 'light'];
 
     // Get data from stores
-    const children = useProfileStore((state) => state.children);
-    const allGoals = useSavingsStore((state) => state.goals);
-    const getChildById = useProfileStore((state) => state.getChildById);
-    const { updateGoalAmount } = useSavingsStore(); // Get necessary action
+    const { goals, fetchGoals, parentContributeToGoal, isLoading, error } = useGoalStore();
+    const { children, fetchChildren, getChildById } = useProfileStore();
 
-    // Group goals by child
-    const goalsByChild = allGoals.reduce((acc, goal) => {
-        if (!acc[goal.childId]) {
-            acc[goal.childId] = [];
+    // Fetch data on mount
+    useEffect(() => {
+        console.log('Parent savings screen mounted, fetching data...');
+        fetchGoals(); // Fetches all goals for parent's children
+        if (children.length === 0) {
+          fetchChildren(); // Fetch children if needed for names
         }
-        acc[goal.childId].push(goal);
-        return acc;
-    }, {} as Record<string, SavingsGoal[]>);
+    }, [fetchGoals, fetchChildren, children.length]);
 
-    // Helper function to get child name
-    const getChildName = (childId: string): string => {
-        const child = getChildById(childId);
-        return child ? child.name : 'Unknown Child';
-    }
+    // Group goals by child using child_id and child_name from goal data if available
+    // Or fallback to profile store lookup
+    const goalsByChild = goals.reduce((acc, goal) => {
+        const childId = goal.child_id;
+        if (!acc[childId]) {
+            const childProfile = getChildById(childId);
+            acc[childId] = { 
+                childName: goal.child_name || childProfile?.name || 'Unknown Child', // Use name from goal if present
+                goals: [] 
+            };
+        }
+        acc[childId].goals.push(goal);
+        return acc;
+    }, {} as Record<string, { childName: string; goals: SavingsGoal[] }>);
     
-    const handleParentContribute = (goalId: string, amount: number) => {
-        const goal = allGoals.find(g => g.id === goalId);
-        if (!goal) return;
+    const handleParentContribute = async (goalId: string, amount: number): Promise<boolean> => {
+        const goal = goals.find(g => g.id === goalId); // Find goal locally first
+        if (!goal) return false;
 
         console.log(`Parent contributing ${amount} to goal ${goalId} (${goal.name})`);
-        // MOCK: In a real app, deduct from parent account/wallet
-        try {
-            updateGoalAmount(goalId, amount);
+        
+        const updatedGoal = await parentContributeToGoal(goalId, { amount });
+        
+        if (updatedGoal) {
             Alert.alert('Contribution Added', `$${amount.toFixed(2)} added to ${goal.name}.`);
-        } catch (error) {
-            console.error("Error contributing to goal:", error);
-            Alert.alert("Error", "Could not add contribution.");
+            return true;
+        } else {
+            Alert.alert("Error", useGoalStore.getState().error || "Could not add contribution.");
+            return false;
         }
     };
+
+    // Handle loading state
+    if (isLoading && goals.length === 0) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <Stack.Screen options={{ title: 'Children Savings Goals' }} />
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
@@ -128,49 +165,49 @@ const ParentSavingsScreen: React.FC = () => {
                      Monitor your children's savings progress.
                  </Text>
 
-                 {children.length === 0 && (
-                     <Text style={{ color: colors.placeholder, textAlign: 'center', marginTop: 20 }}>
-                         No children found.
-                     </Text>
-                )} 
+                 {/* Display Error */}
+                 {error && !isLoading && (
+                    <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+                 )}
 
-                 {Object.keys(goalsByChild).length === 0 && children.length > 0 && (
+                 {/* Check if children profiles are loaded before rendering */}
+                 {children.length === 0 && !useProfileStore.getState().isLoading && !useProfileStore.getState().error && (
                      <Text style={{ color: colors.placeholder, textAlign: 'center', marginTop: 20 }}>
-                         No savings goals set up yet.
+                         No children profiles loaded. Add children first.
                      </Text>
-                )}
+                 )}
+
+                 {Object.keys(goalsByChild).length === 0 && children.length > 0 && !isLoading && (
+                     <Text style={{ color: colors.placeholder, textAlign: 'center', marginTop: 20 }}>
+                         No savings goals set up for any child yet.
+                     </Text>
+                 )}
 
                  {/* Iterate through children who have goals */}
-                 {Object.entries(goalsByChild).map(([childId, childGoals]) => (
+                 {Object.entries(goalsByChild).map(([childId, { childName, goals: childGoals }]) => (
                     <View key={childId} style={[styles.card, { backgroundColor: colors.backgroundStrong }]}>
-                        <Text style={[styles.cardTitle, { color: colors.text }]}>{getChildName(childId)}'s Goals</Text>
+                        <Text style={[styles.cardTitle, { color: colors.text }]}>{childName}'s Goals</Text>
                         {childGoals.map(goal => (
                             <ParentGoalCard key={goal.id} goal={goal} onContribute={handleParentContribute} />
                         ))}
-                         {/* Optionally Add button to create goal FOR child? */}
-                         {/* <TouchableOpacity style={styles.editButton} onPress={() => Alert.alert('New Goal', `Add goal for ${getChildName(childId)} (Not implemented).`)}>
-                             <Text style={[styles.editButtonText, { color: colors.primary }]}>+ Add Goal</Text>
-                         </TouchableOpacity> */} 
+                         {/* Removed Add Goal button for parent view */}
                     </View>
-                ))}
+                 ))}
 
-                 {/* Optionally show children with NO goals */} 
+                 {/* Show children with NO goals */}
                  {children.filter(c => !goalsByChild[c.id]).map(child => (
                     <View key={child.id} style={[styles.card, { backgroundColor: colors.backgroundStrong }]}>
                          <Text style={[styles.cardTitle, { color: colors.text }]}>{child.name}'s Goals</Text>
                          <Text style={{ color: colors.placeholder, marginTop: 10 }}>No savings goals set up yet.</Text>
-                           {/* <TouchableOpacity style={styles.editButton} onPress={() => Alert.alert('New Goal', `Add goal for ${child.name} (Not implemented).`)}>
-                               <Text style={[styles.editButtonText, { color: colors.primary }]}>+ Add Goal</Text>
-                           </TouchableOpacity> */} 
                     </View>
-                ))} 
+                 ))}
 
             </ScrollView>
         </SafeAreaView>
     );
 };
 
-// Styles
+// Styles - Add loadingContainer, errorText
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
@@ -251,27 +288,40 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginTop: 10,
     },
-    inputSmall: {
-        flex: 1,
+    inputSmall: { // Style for the small contribution input
+        flex: 1, // Take available space
         height: 40,
         borderWidth: 1,
         borderRadius: 8,
         paddingHorizontal: 10,
         marginRight: 10,
-        fontSize: 14,
-        borderColor: Colors.light.placeholder, 
+        fontSize: 15,
     },
-    buttonSmall: {
+    buttonSmall: { // Style for small buttons like contribute
         paddingVertical: 10,
         paddingHorizontal: 15,
         borderRadius: 8,
-        height: 40,
         justifyContent: 'center',
+        alignItems: 'center',
+        height: 40, // Match input height
     },
     buttonSmallText: {
-        color: Colors.light.backgroundStrong,
+        color: Colors.light.backgroundStrong, 
         fontSize: 14,
+        fontWeight: '600',
+    },
+    loadingContainer: { 
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    errorText: {
+        padding: 15,
+        textAlign: 'center',
+        fontSize: 15,
         fontWeight: '500',
+        color: Colors.light.error, // Example color
+        marginBottom: 10,
     },
 });
 

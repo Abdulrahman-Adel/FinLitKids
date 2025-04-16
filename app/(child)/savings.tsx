@@ -1,49 +1,79 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, SafeAreaView,
-    ScrollView, TouchableOpacity, Alert, TextInput
+    ScrollView, TouchableOpacity, Alert, TextInput,
+    ActivityIndicator
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
-// Import stores
-import { useSavingsStore, SavingsGoal } from '../../src/contexts/savingsStore';
+// Import correct stores
+import { useGoalStore, SavingsGoal } from '../../src/contexts/goalStore'; 
 import { useAuthStore } from '../../src/contexts/authStore';
-import { useProfileStore } from '../../src/contexts/profileStore';
+import { useDashboardStore } from '../../src/contexts/dashboardStore'; // For refreshing balance
 
-// Goal Card Component (Updated)
+// Goal Card Component - Updated for async actions and local loading
 const GoalCard = ({ goal, onAddToGoal, onDeleteGoal }: { 
     goal: SavingsGoal, 
-    onAddToGoal: (goalId: string, amount: number) => void,
-    onDeleteGoal: (goal: SavingsGoal) => void
+    onAddToGoal: (goalId: string, amount: number) => Promise<boolean>, // Make async
+    onDeleteGoal: (goal: SavingsGoal) => Promise<boolean> // Make async
 }) => {
     const colorScheme = useColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
-    const progress = goal.targetAmount > 0 ? (goal.currentAmount / goal.targetAmount) * 100 : 0;
-    const isComplete = goal.currentAmount >= goal.targetAmount;
-    const [addAmount, setAddAmount] = useState(''); // State for input
+    const progress = goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0;
+    const isComplete = goal.current_amount >= goal.target_amount;
+    const [addAmount, setAddAmount] = useState('');
+    const [isAdding, setIsAdding] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
-    const handleAddPress = () => {
+    const handleAddPress = async () => {
         const amountNum = parseFloat(addAmount);
         if (isNaN(amountNum) || amountNum <= 0) {
             Alert.alert("Invalid Amount", "Please enter a positive number to add.");
             return;
         }
-        onAddToGoal(goal.id, amountNum);
-        setAddAmount(''); // Clear input after adding
+        setIsAdding(true);
+        const success = await onAddToGoal(goal.id, amountNum);
+        setIsAdding(false);
+        if (success) {
+            setAddAmount(''); // Clear input only on success
+        } else {
+            // Error Alert is handled by the store/parent component
+        }
     }
+    
+    const handleDeletePress = () => {
+         // Show confirmation Alert first
+         Alert.alert(
+            'Delete Goal',
+            `Are you sure you want to delete the goal "${goal.name}"? The currently saved amount ($${goal.current_amount.toFixed(2)}) will be returned to your balance.`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete & Refund',
+                    style: 'destructive',
+                    onPress: async () => {
+                        if (isDeleting) return;
+                        setIsDeleting(true);
+                        await onDeleteGoal(goal);
+                        setIsDeleting(false); // Reset loading state regardless of success/fail (error handled in store)
+                    }
+                }
+            ]
+        );
+    };
 
     return (
         <View style={[styles.card, { backgroundColor: colors.backgroundStrong }]}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>{goal.name}</Text>
             <Text style={[styles.amountText, { color: colors.placeholder }]}>
-                {goal.currentAmount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} /
-                {goal.targetAmount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                {goal.current_amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} /
+                {goal.target_amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
             </Text>
             {/* Progress Bar */}
             <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: isComplete ? colors.secondary : colors.primary }]} />
+                <View style={[styles.progressBarFill, { width: `${Math.min(100, progress)}%`, backgroundColor: isComplete ? colors.secondary : colors.primary }]} />
             </View>
             {isComplete ? (
                 <Text style={[styles.completeText, { color: colors.secondary }]}>Goal Reached! 🎉</Text>
@@ -56,18 +86,28 @@ const GoalCard = ({ goal, onAddToGoal, onDeleteGoal }: {
                         value={addAmount}
                         onChangeText={setAddAmount}
                         placeholderTextColor={colors.placeholder}
+                        editable={!isAdding}
                     />
                     <TouchableOpacity
-                        style={[styles.addButtonSmall, { backgroundColor: colors.primary }]}
+                        style={[styles.addButtonSmall, { backgroundColor: isAdding ? colors.placeholder : colors.primary }]}
                         onPress={handleAddPress}
+                        disabled={isAdding}
                     >
-                        <Text style={styles.addButtonTextSmall}>Add</Text>
+                       {isAdding ? (
+                            <ActivityIndicator size="small" color={colors.backgroundStrong} />
+                        ) : (
+                            <Text style={styles.addButtonTextSmall}>Add</Text>
+                        )}
                     </TouchableOpacity>
                 </View>
             )}
             {/* Delete Button */}
-            <TouchableOpacity onPress={() => onDeleteGoal(goal)} style={styles.deleteButton}>
-                <Ionicons name="trash-outline" size={20} color={colors.placeholder} />
+            <TouchableOpacity onPress={handleDeletePress} style={styles.deleteButton} disabled={isDeleting}>
+                 {isDeleting ? (
+                     <ActivityIndicator size="small" color={colors.placeholder} />
+                 ) : (
+                    <Ionicons name="trash-outline" size={20} color={colors.placeholder} />
+                 )}
             </TouchableOpacity>
         </View>
     );
@@ -77,48 +117,29 @@ const ChildSavingsScreen: React.FC = () => {
     const colorScheme = useColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
 
-    // Get state and actions
-    const loggedInUserId = useAuthStore((state) => state.loggedInUserId);
-    const { getGoalsByChild, updateGoalAmount, addGoal, deleteGoal } = useSavingsStore((state) => ({ 
-        getGoalsByChild: state.getGoalsByChild,
-        updateGoalAmount: state.updateGoalAmount,
-        addGoal: state.addGoal,
-        deleteGoal: state.deleteGoal
-    }));
-     const { getChildById, updateChildBalance } = useProfileStore((state) => ({ 
-        getChildById: state.getChildById, 
-        updateChildBalance: state.updateChildBalance 
-    }));
+    // Get state and actions from Goal Store
+    const { goals, fetchGoals, childContributeToGoal, deleteGoal, isLoading, error } = useGoalStore();
+    
+    // For refreshing balance display after action
+    const { fetchDashboardData } = useDashboardStore();
 
-    // Get child data and goals
-    const loggedInChild = loggedInUserId ? getChildById(loggedInUserId) : null;
-    const savingsGoals = loggedInUserId ? getGoalsByChild(loggedInUserId) : [];
+    // Fetch goals on mount
+    useEffect(() => {
+        console.log('Child savings screen mounted, fetching goals...');
+        fetchGoals();
+    }, [fetchGoals]);
 
-    const handleAddToGoal = (goalId: string, amount: number) => {
-         if (!loggedInUserId || !loggedInChild) return;
-
-        // Check if enough balance
-        if (loggedInChild.balance < amount) {
-            Alert.alert("Oops!", "Not enough balance to add to this goal.");
-            return;
-        }
-        
-        // Check if goal is already complete or adding exceeds target
-        const goal = savingsGoals.find(g => g.id === goalId);
-        if (!goal || goal.currentAmount >= goal.targetAmount) {
-             Alert.alert("Goal Complete", "This goal is already reached!");
-             return;
-        }
-        const amountToAddCapped = Math.min(amount, goal.targetAmount - goal.currentAmount);
-        if (amountToAddCapped <= 0) return; 
-
-        try {
-            updateChildBalance(loggedInUserId, -amountToAddCapped); 
-            updateGoalAmount(goalId, amountToAddCapped); 
-            Alert.alert("Success", `${amountToAddCapped.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} added to "${goal.name}"!`);
-        } catch (error) {
-            console.error("Error adding to goal:", error);
-            Alert.alert("Error", "Could not add funds to the goal.");
+    const handleAddToGoal = async (goalId: string, amount: number): Promise<boolean> => {
+        console.log(`Attempting to add ${amount} to goal ${goalId}`);
+        const result = await childContributeToGoal(goalId, { amount });
+        if (result) {
+            Alert.alert("Success", `${amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} added!`);
+            fetchDashboardData(); // Refresh dashboard balance
+            return true;
+        } else {
+            // Error alert handled by store/global mechanism (or show local alert if preferred)
+            // Alert.alert("Error", useGoalStore.getState().error || "Could not add funds.");
+            return false;
         }
     };
 
@@ -127,34 +148,26 @@ const ChildSavingsScreen: React.FC = () => {
         router.push('/(child)/add-savings-goal');
     };
 
-    const handleDeleteGoal = (goalToDelete: SavingsGoal) => {
-        Alert.alert(
-            'Delete Goal',
-            `Are you sure you want to delete the goal "${goalToDelete.name}"? The currently saved amount ($${goalToDelete.currentAmount}) will be returned to your balance.`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete & Refund',
-                    style: 'destructive',
-                    onPress: () => {
-                        if (loggedInUserId) {
-                            const deleted = deleteGoal(goalToDelete.id);
-                            if (deleted) {
-                                updateChildBalance(loggedInUserId, deleted.currentAmount); // Add current amount back
-                                Alert.alert('Goal Deleted', 'Savings goal removed and balance updated.');
-                            }
-                        }
-                    }
-                }
-            ]
-        );
+    const handleDeleteGoal = async (goalToDelete: SavingsGoal): Promise<boolean> => {
+        console.log(`Attempting to delete goal ${goalToDelete.id}`);
+        const result = await deleteGoal(goalToDelete.id);
+        if (result) {
+            Alert.alert('Goal Deleted', 'Savings goal removed and balance updated.');
+            fetchDashboardData(); // Refresh dashboard balance
+            return true;
+        } else {
+             // Error alert handled by store/global mechanism
+            return false;
+        }
     }
-
-    if (!loggedInChild) {
-        return (
+    
+    // Initial loading state
+    if (isLoading && goals.length === 0) {
+         return (
             <SafeAreaView style={styles.safeArea}>
+                 <Stack.Screen options={{ title: 'My Savings Goals' }} />
                 <View style={styles.loadingContainer}>
-                    <Text style={{ color: colors.text }}>Loading...</Text>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
             </SafeAreaView>
         );
@@ -174,14 +187,19 @@ const ChildSavingsScreen: React.FC = () => {
             <ScrollView contentContainerStyle={styles.scrollContainer}>
                 <Text style={[styles.screenSubtitle, { color: colors.placeholder }]}>Save up for things you want!</Text>
                 
+                {/* Display global error */}
+                {error && !isLoading && (
+                    <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+                )}
+                
                 <TouchableOpacity style={[styles.createButton, { backgroundColor: colors.primary }]} onPress={handleAddNewGoal}>
                     <Text style={styles.createButtonText}>+ Add New Goal</Text>
                 </TouchableOpacity>
 
-                {savingsGoals.length === 0 ? (
+                {goals.length === 0 && !isLoading ? (
                     <Text style={{ color: colors.placeholder, textAlign: 'center', marginTop: 20 }}>No savings goals set up yet.</Text>
                 ) : (
-                    savingsGoals.map(goal => (
+                    goals.map(goal => (
                         <GoalCard key={goal.id} goal={goal} onAddToGoal={handleAddToGoal} onDeleteGoal={handleDeleteGoal} />
                     ))
                 )}
@@ -190,7 +208,7 @@ const ChildSavingsScreen: React.FC = () => {
     );
 };
 
-// --- Styles --- 
+// --- Styles --- (Keep existing styles, add errorText if needed)
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
@@ -270,36 +288,35 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     input: {
-        flex: 1, 
-        height: 45,
+        flex: 1, // Allow input to grow
+        height: 40,
         borderWidth: 1,
         borderRadius: 8,
-        paddingHorizontal: 15,
-        fontSize: 16,
-        marginRight: 10,
-        backgroundColor: Colors.light.background, // Ensure background color is set
-        color: Colors.light.text, // Ensure text color is set
-        borderColor: Colors.light.placeholder // Ensure border color is set
+        paddingHorizontal: 10,
+        marginRight: 10, // Space between input and button
     },
     addButtonSmall: {
         paddingVertical: 10,
         paddingHorizontal: 15,
         borderRadius: 8,
-        height: 45, 
-        justifyContent: 'center',
-        backgroundColor: Colors.light.primary // Ensure background color is set
     },
     addButtonTextSmall: {
         color: Colors.light.backgroundStrong,
-        fontSize: 14,
         fontWeight: '600',
     },
-    // Style for delete button on card
     deleteButton: {
         position: 'absolute',
         top: 10,
         right: 10,
         padding: 5,
+    },
+    errorText: {
+        padding: 15,
+        textAlign: 'center',
+        fontSize: 15,
+        fontWeight: '500',
+        color: Colors.light.error, // Example color
+        marginBottom: 10,
     },
 });
 
